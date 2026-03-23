@@ -3,23 +3,18 @@ import re
 import zipfile
 import os
 import streamlit as st
+import tempfile
 
 # -------- PAGE CONFIG --------
 st.set_page_config(page_title="WhatsApp Analyzer", layout="wide")
 
-# -------- CUSTOM UI --------
-st.markdown("""
-<style>
-.metric-card {
-    background: #1c1f26;
-    padding: 20px;
-    border-radius: 12px;
-    text-align: center;
-    color: white;
-    box-shadow: 0 0 10px rgba(0,0,0,0.5);
-}
-</style>
-""", unsafe_allow_html=True)
+# -------- CLEAR CACHE --------
+st.cache_data.clear()
+
+# -------- RESET BUTTON --------
+if st.button("🔄 Reset App"):
+    st.cache_data.clear()
+    st.rerun()
 
 # -------- TITLE --------
 st.markdown("<h1 style='text-align:center;'>📊 WhatsApp Chat Analyzer 🚀</h1>", unsafe_allow_html=True)
@@ -29,30 +24,37 @@ uploaded_file = st.file_uploader("📂 Upload WhatsApp Chat (.txt or .zip)", typ
 
 if uploaded_file:
 
-    file_path = uploaded_file.name
-
-    with open(file_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+    # -------- SAVE TEMP FILE --------
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+        tmp_file.write(uploaded_file.getbuffer())
+        file_path = tmp_file.name
 
     # -------- HANDLE ZIP --------
-    if file_path.endswith(".zip"):
+    if uploaded_file.name.endswith(".zip"):
         st.info("📦 Extracting ZIP file...")
-        with zipfile.ZipFile(file_path, 'r') as zip_ref:
-            zip_ref.extractall()
 
-        for f in os.listdir():
-            if f.endswith(".txt"):
-                file_path = f
-                st.success(f"✅ Found chat file: {file_path}")
-                break
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir)
 
-    # -------- READ FILE --------
-    with open(file_path, encoding="utf-8", errors="ignore") as f:
-        lines = f.readlines()
+            txt_files = [f for f in os.listdir(temp_dir) if f.endswith(".txt")]
 
+            if not txt_files:
+                st.error("❌ No .txt file found inside ZIP")
+                st.stop()
+
+            file_path = os.path.join(temp_dir, txt_files[0])
+            st.success(f"✅ Using file: {txt_files[0]}")
+
+            with open(file_path, encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+    else:
+        with open(file_path, encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+
+    # -------- PARSER --------
     data = []
 
-    # -------- UNIVERSAL PARSER --------
     for line in lines:
         match = re.match(r"(\d{1,2}/\d{1,2}/\d{2,4}), (\d{1,2}:\d{1,2}(?:\s?[APMapm]{2})?) - (.*?): (.*)", line)
 
@@ -76,10 +78,10 @@ if uploaded_file:
     df = pd.DataFrame(data, columns=["Date", "Time", "User", "Message"])
 
     if df.empty:
-        st.error("❌ Could not parse chat. Please upload correct format.")
+        st.error("❌ Could not parse chat.")
         st.stop()
 
-    # -------- CLEAN DATA --------
+    # -------- CLEAN --------
     df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
     df["Hour"] = pd.to_datetime(df["Time"], errors="coerce").dt.hour
     df["Emoji_Count"] = df["Message"].apply(lambda x: len(re.findall(r"[^\w\s,]", x)))
@@ -95,28 +97,25 @@ if uploaded_file:
 
     # -------- METRICS --------
     col1, col2 = st.columns(2)
-    col1.markdown(f"<div class='metric-card'><h3>Total Messages</h3><h1>{total_msgs}</h1></div>", unsafe_allow_html=True)
-    col2.markdown(f"<div class='metric-card'><h3>Avg / Day</h3><h1>{avg_per_day}</h1></div>", unsafe_allow_html=True)
+    col1.metric("📩 Total Messages", total_msgs)
+    col2.metric("📅 Avg / Day", avg_per_day)
 
     st.divider()
 
     # -------- USERS --------
-    st.markdown("## 👤 User Message Distribution")
-    st.caption("Total number of messages sent by each user.")
+    st.markdown("## 👤 Users")
     user_df = user_total.reset_index()
     user_df.columns = ["User", "Messages"]
     st.dataframe(user_df, use_container_width=True)
 
-    # -------- EMOJI --------
-    st.markdown("## 😂 Emoji Usage Analysis")
-    st.caption("Number of emojis used by each user.")
+    # -------- EMOJIS --------
+    st.markdown("## 😂 Emoji Usage")
     emoji_df = emoji_user.reset_index()
     emoji_df.columns = ["User", "Emojis"]
     st.dataframe(emoji_df, use_container_width=True)
 
     # -------- DAILY --------
     st.markdown("## 📅 Daily Message Counts")
-    st.caption("Messages sent per day.")
 
     daily_df = daily.reset_index()
     daily_df.columns = ["Date", "Messages"]
@@ -138,28 +137,23 @@ if uploaded_file:
 
     st.divider()
 
-    # -------- GRAPH SECTION --------
+    # -------- GRAPHS --------
     st.markdown("## 📈 Graphical Analysis")
-    st.info("These graphs help understand chat activity patterns, user behavior, and engagement trends.")
 
-    # Daily trend
-    st.markdown("### 📅 Daily Message Trend (Messages vs Date)")
+    st.markdown("### 📅 Daily Message Trend")
     st.caption("Shows how chat activity changes over time.")
     st.line_chart(daily)
 
-    # User messages
     st.markdown("### 👤 Messages per User")
-    st.caption("Compares total messages sent by each user.")
+    st.caption("Total messages sent by each user.")
     st.bar_chart(user_total)
 
-    # Hourly activity
-    st.markdown("### ⏰ Activity by Hour (Time vs Messages)")
-    st.caption("Shows when users are most active during the day.")
+    st.markdown("### ⏰ Activity by Hour")
+    st.caption("Most active hours of the day.")
     st.bar_chart(hourly)
 
-    # Emoji usage
-    st.markdown("### 😂 Emoji Usage Distribution")
-    st.caption("Shows emoji usage comparison between users.")
+    st.markdown("### 😂 Emoji Usage")
+    st.caption("Emoji usage comparison.")
     st.bar_chart(emoji_user)
 
     st.divider()
