@@ -19,12 +19,14 @@ if uploaded_file:
 
     # -------- HANDLE ZIP --------
     if file_path.endswith(".zip"):
+        st.write("📦 Extracting ZIP file...")
         with zipfile.ZipFile(file_path, 'r') as zip_ref:
             zip_ref.extractall()
 
         for f in os.listdir():
             if f.endswith(".txt"):
                 file_path = f
+                st.success(f"✅ Found chat file: {file_path}")
                 break
 
     # -------- READ FILE --------
@@ -59,9 +61,7 @@ if uploaded_file:
 
     df = pd.DataFrame(data, columns=["Date", "Time", "User", "Message"])
 
-    # -------- DEBUG --------
-    st.write("Parsed messages:", len(df))
-
+    # -------- CHECK --------
     if df.empty:
         st.error("❌ Could not parse chat. Please upload correct format.")
         st.stop()
@@ -85,12 +85,44 @@ if uploaded_file:
     avg_per_day = total_msgs // len(daily) if len(daily) > 0 else 0
 
     # -------- REPORT --------
-    st.subheader("📌 Key Stats")
-    st.write(f"Total Messages: {total_msgs}")
-    st.write(f"Average Messages per Day: {avg_per_day}")
+    st.subheader("📊 REPORT")
+
+    st.write(f"**Total Messages:** {total_msgs}")
+    st.write(f"**Average per Day:** {avg_per_day}")
+
+    # 👤 Users
+    st.subheader("👤 Users")
+    for user, count in user_total.items():
+        st.write(f"{user} : {count}")
+
+    # 😂 Emojis
+    st.subheader("😂 Emojis")
+    for user, count in emoji_user.items():
+        st.write(f"{user} : {count}")
+
+    # -------- DAILY COUNTS (NEW IMPROVED) --------
+    st.subheader("📅 Daily Message Counts")
+
+    daily_df = daily.reset_index()
+    daily_df.columns = ["Date", "Messages"]
+
+    st.dataframe(daily_df)
+
+    # 🔥 Peak Day
+    peak_day = daily.idxmax()
+    peak_val = daily.max()
+    st.success(f"🔥 Peak Day: {peak_day.date()} ({peak_val} messages)")
+
+    # 🏆 Top Days
+    st.subheader("🏆 Top 3 Active Days")
+    top_days = daily.sort_values(ascending=False).head(3)
+    for date, count in top_days.items():
+        st.write(f"{date.date()} : {count}")
 
     # -------- GRAPHS --------
-    st.subheader("📅 Messages per Day")
+    st.subheader("📈 Graphical Analysis")
+
+    st.subheader("📈 Daily Message Trend")
     st.line_chart(daily)
 
     st.subheader("👤 Messages per User")
@@ -102,27 +134,31 @@ if uploaded_file:
     st.subheader("😂 Emoji Usage")
     st.bar_chart(emoji_user)
 
-    # -------- SMART SUMMARY --------
-    st.subheader("🧠 Smart Summary")
-
-    peak_day = daily.idxmax()
-    peak_val = daily.max()
+    # -------- SUMMARY --------
+    st.subheader("🧠 SUMMARY")
 
     summary = []
 
+    low_day = daily.idxmin()
+
     summary.append(f"Peak activity on {peak_day.date()} with {peak_val} messages.")
-    summary.append(f"{user_total.idxmax()} is the most active user.")
+    summary.append(f"Lowest activity on {low_day.date()}.")
 
     if len(user_total) >= 2:
         diff = abs(user_total.iloc[0] - user_total.iloc[1])
         if diff < total_msgs * 0.1:
-            summary.append("Conversation is balanced between users.")
+            summary.append("Users contributed almost equally.")
         else:
-            summary.append("One user dominates the conversation.")
+            summary.append(f"{user_total.idxmax()} dominated the conversation.")
 
-    peak_hour = hourly.idxmax()
-    summary.append(f"Most messages are sent around {peak_hour}:00 hours.")
-    summary.append(f"Total {total_msgs} messages exchanged.")
+    summary.append(f"{emoji_user.idxmax()} used more emojis.")
+
+    if peak_val > avg_per_day * 2:
+        summary.append("Chat shows spike-based activity.")
+    else:
+        summary.append("Chat is consistent.")
+
+    summary.append(f"Total {total_msgs} messages with avg {avg_per_day}/day.")
 
     for s in summary:
-        st.write("•", s)
+        st.write(f"• {s}")
